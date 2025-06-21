@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Интерактивная карта — Мутанты: Точка Отсчёта</title>
   <style>
     html, body {
@@ -13,13 +13,14 @@
       font-family: sans-serif;
       background: #111;
       color: #eee;
+      touch-action: none;
     }
     .viewport {
       width: 100vw;
       height: 100vh;
       overflow: hidden;
-      touch-action: none;
       position: relative;
+      touch-action: none;
     }
     .map-container {
       position: absolute;
@@ -30,10 +31,10 @@
     .map-container img {
       width: 4039px;
       height: 2415px;
-      display: block;
       max-width: none;
       user-select: none;
       -webkit-user-drag: none;
+      pointer-events: none;
     }
     .sector {
       position: absolute;
@@ -79,37 +80,62 @@
       cursor: pointer;
       border-radius: 5px;
     }
+
+    #data-panel {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    #data-panel button {
+      background: #333;
+      color: #fff;
+      border: 1px solid #666;
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    #data-panel button:hover {
+      background: #444;
+    }
   </style>
 </head>
 <body>
   <div class="viewport" id="viewport">
     <div class="map-container" id="map-container">
-      <img src="https://raw.githubusercontent.com/Mellfiore/MAP/main/The%20Map%20MTO.jpg" id="map-img" alt="Map">
+      <img src="https://raw.githubusercontent.com/Mellfiore/MAP/main/The%20Map%20MTO.jpg" id="map-img" alt="Map" />
     </div>
   </div>
 
   <div id="sector-card">
     <h3 id="sector-title"></h3>
-    <input id="name-input" placeholder="Название">
+    <input id="name-input" placeholder="Название" />
     <textarea id="description-input" placeholder="Описание"></textarea>
-    <input id="threats-input" placeholder="Угрозы">
-    <input id="loot-input" placeholder="Возможный лут">
+    <input id="threats-input" placeholder="Угрозы" />
+    <input id="loot-input" placeholder="Возможный лут" />
     <button id="save-btn">Сохранить</button>
     <button id="explored-btn">Отметить как исследовано</button>
     <button id="close-btn">Закрыть</button>
   </div>
 
+  <div id="data-panel">
+    <button onclick="exportData()">💾 Сохранить</button>
+    <button onclick="document.getElementById('import-file').click()">📂 Загрузить</button>
+    <input type="file" id="import-file" style="display:none" accept=".json" onchange="importData(event)" />
+  </div>
+
   <script>
-    const viewport = document.getElementById('viewport');
     const container = document.getElementById('map-container');
+    const viewport = document.getElementById('viewport');
     const rows = 'ABCDEFGHIJKLMNOPQR'.split('');
     const columns = Array.from({ length: 30 }, (_, i) => i + 1);
     const cellWidth = 4039 / 30;
     const cellHeight = 2415 / 18;
-
     let scale = 1, originX = 0, originY = 0;
-    let lastTouchDistance = null;
-    let pointers = [];
 
     let locations = JSON.parse(localStorage.getItem('map_data')) || {};
     if (!Object.keys(locations).length) {
@@ -132,6 +158,12 @@
           if (locations[id].explored) div.classList.add('explored');
           div.style.left = `${colIndex * cellWidth}px`;
           div.style.top = `${rowIndex * cellHeight}px`;
+          div.style.width = `${cellWidth}px`;
+          div.style.height = `${cellHeight}px`;
+          div.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openCard(id);
+          });
           container.appendChild(div);
         });
       });
@@ -174,66 +206,65 @@
       document.getElementById('sector-card').style.display = 'none';
     });
 
+    function exportData() {
+      const blob = new Blob([JSON.stringify(locations, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'map_data.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importData(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = JSON.parse(e.target.result);
+          if (typeof data === 'object' && Object.keys(data).length) {
+            locations = data;
+            localStorage.setItem('map_data', JSON.stringify(locations));
+            location.reload();
+          } else {
+            alert('Файл пустой или невалидный');
+          }
+        } catch (err) {
+          alert('Ошибка чтения файла: ' + err.message);
+        }
+      };
+      reader.readAsText(file);
+    }
+
     createSectors();
 
-    // Панорамирование и мультитач-масштабирование
-    viewport.addEventListener('pointerdown', (e) => {
-      pointers.push(e);
+    // Панорамирование и зум
+    let pointerDown = false, lastX = 0, lastY = 0;
+
+    viewport.addEventListener('pointerdown', e => {
+      pointerDown = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
     });
 
-    viewport.addEventListener('pointermove', (e) => {
-      for (let i = 0; i < pointers.length; i++) {
-        if (pointers[i].pointerId === e.pointerId) {
-          pointers[i] = e;
-          break;
-        }
-      }
-
-      if (pointers.length === 2) {
-        const dx = pointers[0].clientX - pointers[1].clientX;
-        const dy = pointers[0].clientY - pointers[1].clientY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        if (lastTouchDistance !== null) {
-          const delta = distance / lastTouchDistance;
-          scale *= delta;
-          scale = Math.min(Math.max(scale, 0.3), 5);
-          container.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
-        }
-        lastTouchDistance = distance;
-      }
-
-      if (pointers.length === 1) {
-        const dx = e.movementX;
-        const dy = e.movementY;
-        originX += dx;
-        originY += dy;
-        container.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
-      }
+    viewport.addEventListener('pointermove', e => {
+      if (!pointerDown) return;
+      originX += (e.clientX - lastX);
+      originY += (e.clientY - lastY);
+      container.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
+      lastX = e.clientX;
+      lastY = e.clientY;
     });
 
-    ['pointerup', 'pointercancel'].forEach(evt => {
-      viewport.addEventListener(evt, (e) => {
-        pointers = pointers.filter(p => p.pointerId !== e.pointerId);
-        if (pointers.length < 2) lastTouchDistance = null;
-      });
-    });
-
-    // Колёсико мыши для зума
+    viewport.addEventListener('pointerup', () => pointerDown = false);
     viewport.addEventListener('wheel', (e) => {
       e.preventDefault();
       const delta = e.deltaY < 0 ? 1.1 : 0.9;
       scale *= delta;
-      scale = Math.min(Math.max(scale, 0.3), 5);
+      scale = Math.min(Math.max(scale, 0.2), 5);
       container.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
     }, { passive: false });
-
-    // Открытие карточки
-    document.addEventListener('click', (e) => {
-      if (e.target.classList.contains('sector')) {
-        openCard(e.target.dataset.id);
-      }
-    });
   </script>
 </body>
-  </html>
-  
+</html>
