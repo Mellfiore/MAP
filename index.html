@@ -1,1 +1,239 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Интерактивная карта — Мутанты: Точка Отсчёта</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: sans-serif;
+      background: #111;
+      color: #eee;
+    }
+    .viewport {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      touch-action: none;
+      position: relative;
+    }
+    .map-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: top left;
+    }
+    .map-container img {
+      width: 4039px;
+      height: 2415px;
+      display: block;
+      max-width: none;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    .sector {
+      position: absolute;
+      width: 134.63px;
+      height: 134.17px;
+      border: 1px solid rgba(255, 0, 0, 0.3);
+      box-sizing: border-box;
+      cursor: pointer;
+    }
+    .sector:hover {
+      background-color: rgba(255, 255, 0, 0.2);
+    }
+    .sector.explored {
+      background-color: rgba(0, 255, 0, 0.2);
+    }
+    #sector-card {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #222;
+      padding: 20px;
+      border-radius: 10px;
+      display: none;
+      z-index: 1000;
+      width: 300px;
+    }
+    #sector-card input,
+    #sector-card textarea {
+      width: 100%;
+      margin-bottom: 10px;
+      padding: 5px;
+      background: #333;
+      color: #eee;
+      border: 1px solid #555;
+    }
+    #sector-card button {
+      background: #4caf50;
+      border: none;
+      color: white;
+      padding: 10px;
+      margin: 5px;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="viewport" id="viewport">
+    <div class="map-container" id="map-container">
+      <img src="https://raw.githubusercontent.com/Mellfiore/MAP/main/The%20Map%20MTO.jpg" id="map-img" alt="Map">
+    </div>
+  </div>
 
+  <div id="sector-card">
+    <h3 id="sector-title"></h3>
+    <input id="name-input" placeholder="Название">
+    <textarea id="description-input" placeholder="Описание"></textarea>
+    <input id="threats-input" placeholder="Угрозы">
+    <input id="loot-input" placeholder="Возможный лут">
+    <button id="save-btn">Сохранить</button>
+    <button id="explored-btn">Отметить как исследовано</button>
+    <button id="close-btn">Закрыть</button>
+  </div>
+
+  <script>
+    const viewport = document.getElementById('viewport');
+    const container = document.getElementById('map-container');
+    const rows = 'ABCDEFGHIJKLMNOPQR'.split('');
+    const columns = Array.from({ length: 30 }, (_, i) => i + 1);
+    const cellWidth = 4039 / 30;
+    const cellHeight = 2415 / 18;
+
+    let scale = 1, originX = 0, originY = 0;
+    let lastTouchDistance = null;
+    let pointers = [];
+
+    let locations = JSON.parse(localStorage.getItem('map_data')) || {};
+    if (!Object.keys(locations).length) {
+      rows.forEach(r => {
+        columns.forEach(c => {
+          const id = `${r}${c}`;
+          locations[id] = { name: '', description: '', threats: '', loot: '', explored: false };
+        });
+      });
+      localStorage.setItem('map_data', JSON.stringify(locations));
+    }
+
+    function createSectors() {
+      rows.forEach((row, rowIndex) => {
+        columns.forEach((col, colIndex) => {
+          const id = `${row}${col}`;
+          const div = document.createElement('div');
+          div.className = 'sector';
+          div.dataset.id = id;
+          if (locations[id].explored) div.classList.add('explored');
+          div.style.left = `${colIndex * cellWidth}px`;
+          div.style.top = `${rowIndex * cellHeight}px`;
+          container.appendChild(div);
+        });
+      });
+    }
+
+    function openCard(id) {
+      const data = locations[id];
+      document.getElementById('sector-title').textContent = `Сектор ${id}`;
+      document.getElementById('name-input').value = data.name;
+      document.getElementById('description-input').value = data.description;
+      document.getElementById('threats-input').value = data.threats;
+      document.getElementById('loot-input').value = data.loot;
+      document.getElementById('explored-btn').textContent = data.explored ? 'Отметить как неисследовано' : 'Отметить как исследовано';
+      document.getElementById('sector-card').dataset.id = id;
+      document.getElementById('sector-card').style.display = 'block';
+    }
+
+    document.getElementById('save-btn').addEventListener('click', () => {
+      const id = document.getElementById('sector-card').dataset.id;
+      locations[id] = {
+        name: document.getElementById('name-input').value,
+        description: document.getElementById('description-input').value,
+        threats: document.getElementById('threats-input').value,
+        loot: document.getElementById('loot-input').value,
+        explored: locations[id].explored || false
+      };
+      localStorage.setItem('map_data', JSON.stringify(locations));
+      document.getElementById('sector-card').style.display = 'none';
+    });
+
+    document.getElementById('explored-btn').addEventListener('click', () => {
+      const id = document.getElementById('sector-card').dataset.id;
+      locations[id].explored = !locations[id].explored;
+      document.querySelector(`.sector[data-id="${id}"]`).classList.toggle('explored');
+      localStorage.setItem('map_data', JSON.stringify(locations));
+      document.getElementById('sector-card').style.display = 'none';
+    });
+
+    document.getElementById('close-btn').addEventListener('click', () => {
+      document.getElementById('sector-card').style.display = 'none';
+    });
+
+    createSectors();
+
+    // Панорамирование и мультитач-масштабирование
+    viewport.addEventListener('pointerdown', (e) => {
+      pointers.push(e);
+    });
+
+    viewport.addEventListener('pointermove', (e) => {
+      for (let i = 0; i < pointers.length; i++) {
+        if (pointers[i].pointerId === e.pointerId) {
+          pointers[i] = e;
+          break;
+        }
+      }
+
+      if (pointers.length === 2) {
+        const dx = pointers[0].clientX - pointers[1].clientX;
+        const dy = pointers[0].clientY - pointers[1].clientY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (lastTouchDistance !== null) {
+          const delta = distance / lastTouchDistance;
+          scale *= delta;
+          scale = Math.min(Math.max(scale, 0.3), 5);
+          container.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
+        }
+        lastTouchDistance = distance;
+      }
+
+      if (pointers.length === 1) {
+        const dx = e.movementX;
+        const dy = e.movementY;
+        originX += dx;
+        originY += dy;
+        container.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
+      }
+    });
+
+    ['pointerup', 'pointercancel'].forEach(evt => {
+      viewport.addEventListener(evt, (e) => {
+        pointers = pointers.filter(p => p.pointerId !== e.pointerId);
+        if (pointers.length < 2) lastTouchDistance = null;
+      });
+    });
+
+    // Колёсико мыши для зума
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 1.1 : 0.9;
+      scale *= delta;
+      scale = Math.min(Math.max(scale, 0.3), 5);
+      container.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
+    }, { passive: false });
+
+    // Открытие карточки
+    document.addEventListener('click', (e) => {
+      if (e.target.classList.contains('sector')) {
+        openCard(e.target.dataset.id);
+      }
+    });
+  </script>
+</body>
+  </html>
+  
