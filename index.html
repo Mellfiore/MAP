@@ -119,10 +119,8 @@
 
   <div class="import-export">
     <button onclick="exportData()">💾 Сохранить</button>
-    <label>
-      📂 Загрузить
-      <input type="file" id="import-file" onchange="importData()" />
-    </label>
+    <button onclick="document.getElementById('import-file').click()">📂 Загрузить</button>
+    <input type="file" id="import-file" onchange="importData()" style="display: none;" />
   </div>
 
   <script>
